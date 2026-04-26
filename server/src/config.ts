@@ -229,11 +229,20 @@ export function loadConfig(): Config {
       }
     })()
     : null;
+  const hostEnvHostname = (() => {
+    const raw = process.env.HOST?.trim().toLowerCase();
+    if (!raw) return null;
+    // Exclude bare bind addresses (all-interfaces / loopback) — those are not
+    // DNS names that will appear in an incoming Host header.
+    if (raw === "0.0.0.0" || raw === "::" || raw === "127.0.0.1" || raw === "localhost" || raw === "::1") return null;
+    return raw;
+  })();
   const allowedHostnames = Array.from(
     new Set(
       [
         ...(allowedHostnamesFromEnv ?? fileConfig?.server.allowedHostnames ?? []),
         ...(publicUrlHostname ? [publicUrlHostname] : []),
+        ...(hostEnvHostname ? [hostEnvHostname] : []),
       ]
         .map((value) => value.trim().toLowerCase())
         .filter(Boolean),

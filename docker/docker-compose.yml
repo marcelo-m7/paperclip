@@ -34,6 +34,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ..
+          ignore:
+            - .git
+            - node_modules
+            - "**/node_modules"
+            - data
+            - docs
+            - evals
+            - releases
+            - report
 
 volumes:
   pgdata:

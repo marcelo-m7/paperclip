@@ -1,0 +1,88 @@
+# Development compose — uses the `dev` Dockerfile stage with hot-reload via
+# Docker Compose Watch (requires Docker Compose v2.22+).
+#
+# Usage:
+#   docker compose -f docker/docker-compose.dev.yml up --build
+#
+# To enable automatic file sync without a full image rebuild:
+#   docker compose -f docker/docker-compose.dev.yml watch
+#
+# The `develop.watch` rules below sync source changes directly into the running
+# container. A rebuild is only triggered when dependency manifests change.
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: paperclip
+      POSTGRES_PASSWORD: paperclip
+      POSTGRES_DB: paperclip
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperclip -d paperclip"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: dev
+    ports:
+      - "${PAPERCLIP_PORT:-3100}:3100"
+      - "${VITE_PORT:-5173}:5173"
+    environment:
+      DATABASE_URL: postgres://paperclip:paperclip@db:5432/paperclip
+      PORT: "${PAPERCLIP_PORT:-3100}"
+      NODE_ENV: "development"
+      PAPERCLIP_DEPLOYMENT_MODE: "${PAPERCLIP_DEPLOYMENT_MODE:-authenticated}"
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "${PAPERCLIP_DEPLOYMENT_EXPOSURE:-private}"
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3100}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}"
+    volumes:
+      - paperclip-data:/paperclip
+    depends_on:
+      db:
+        condition: service_healthy
+    develop:
+      watch:
+        # Sync source changes directly into the container (no rebuild needed).
+        # The running `pnpm dev` (tsx watch) process detects the changes and
+        # hot-reloads automatically.
+        - action: sync
+          path: ../server
+          target: /app/server
+          ignore:
+            - node_modules
+            - dist
+        - action: sync
+          path: ../ui
+          target: /app/ui
+          ignore:
+            - node_modules
+            - dist
+        - action: sync
+          path: ../packages
+          target: /app/packages
+          ignore:
+            - "**/node_modules"
+            - "**/dist"
+        - action: sync
+          path: ../cli
+          target: /app/cli
+          ignore:
+            - node_modules
+            - dist
+        # Rebuild the image when dependency manifests change.
+        - action: rebuild
+          path: ../package.json
+        - action: rebuild
+          path: ../pnpm-lock.yaml
+        - action: rebuild
+          path: ../pnpm-workspace.yaml
+
+volumes:
+  pgdata:
+  paperclip-data:

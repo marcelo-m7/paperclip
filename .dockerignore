@@ -8,3 +8,14 @@ coverage
 data
 tmp
 *.log
+# build outputs (local) – not needed in image build context
+**/dist
+# documentation – not consumed by the build
+docs/
+releases/
+report/
+evals/
+# agent/IDE config – not needed in image
+.agents
+.claude
+.cursor

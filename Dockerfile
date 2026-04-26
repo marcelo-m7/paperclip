@@ -3,7 +3,7 @@ FROM node:lts-trixie-slim AS base
 ARG USER_UID=1000
 ARG USER_GID=1000
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates gosu curl gh git wget ripgrep python3 \
+  && apt-get install -y --no-install-recommends ca-certificates gosu curl gh git wget ripgrep python3 openssh-client jq \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable
 
@@ -34,7 +34,21 @@ COPY --parents packages/plugins/sandbox-providers/./*/package.json packages/plug
 COPY packages/plugins/paperclip-plugin-fake-sandbox/package.json packages/plugins/paperclip-plugin-fake-sandbox/
 COPY patches/ patches/
 
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# ---- dev stage: deps + full source for hot-reload development ----
+FROM deps AS dev
+COPY . .
+RUN mkdir -p /paperclip \
+  && chown node:node /paperclip
+ENV NODE_ENV=development \
+  HOST=0.0.0.0 \
+  PORT=3100 \
+  SERVE_UI=true \
+  PAPERCLIP_HOME=/paperclip
+EXPOSE 3100 5173
+CMD ["pnpm", "dev"]
 
 FROM base AS build
 WORKDIR /app
@@ -49,13 +63,16 @@ FROM base AS production
 ARG USER_UID=1000
 ARG USER_GID=1000
 WORKDIR /app
-COPY --chown=node:node --from=build /app /app
-RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest opencode-ai \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends openssh-client jq \
-  && rm -rf /var/lib/apt/lists/* \
+
+# Install global agent tools before copying source so this layer is cached
+# independently of source-code changes. The npm cache mount avoids re-downloading
+# packages on every rebuild while still re-running the install step.
+RUN --mount=type=cache,id=npm-global,target=/root/.npm \
+    npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest opencode-ai \
   && mkdir -p /paperclip \
   && chown node:node /paperclip
+
+COPY --chown=node:node --from=build /app /app
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
